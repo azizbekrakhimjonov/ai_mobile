@@ -1,412 +1,206 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+
+import 'custom_http_override.dart';
 
 void main() {
-  runApp(MyApp());
+  // SSL xatosini test rejimida chetlab o'tish
+  HttpOverrides.global = MyHttpOverrides();
+  runApp(const ChatApiApp());
 }
 
-class MyApp extends StatelessWidget {
+class ChatApiApp extends StatelessWidget {
+  const ChatApiApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Patient Activity App',
+      title: 'Flutter Chat API',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
+        primarySwatch: Colors.indigo,
       ),
-      debugShowCheckedModeBanner: false,
-      home: PatientActivityScreen(),
+      home: const ChatScreen(),
     );
   }
 }
 
-class PatientActivityScreen extends StatefulWidget {
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
+
   @override
-  _PatientActivityScreenState createState() => _PatientActivityScreenState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _PatientActivityScreenState extends State<PatientActivityScreen> {
-  static const String BASE_URL = "https://weep.uz/api/";
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _userIdController =
+  TextEditingController(text: '12345');
+  final TextEditingController _promptController = TextEditingController();
+  final List<String> _messages = [];
+  bool _loading = false;
 
-  final TextEditingController _phoneController = TextEditingController();
-  String _savedPhoneNumber = "";
-  bool _isActivityActive = false;
-  bool _isStartLoading = false;
-  bool _isStopLoading = false;
-  String _statusMessage = "";
+  // Sizning API URL
+  final String apiUrl = 'https://my.weep.uz/chat/';
+
+  Future<void> _sendPrompt() async {
+    final userId = _userIdController.text.trim();
+    final prompt = _promptController.text.trim();
+
+    if (prompt.isEmpty) return;
+
+    setState(() {
+      _loading = true;
+      _messages.add('Siz: $prompt');
+      _promptController.clear();
+    });
+
+    try {
+      final body = jsonEncode({
+        'user_id': userId,
+        'prompt': prompt,
+      });
+
+      final response = await http
+          .post(
+        Uri.parse(apiUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      )
+          .timeout(const Duration(seconds: 10));
+
+      String reply;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        try {
+          final decoded = jsonDecode(response.body);
+          if (decoded is Map) {
+            reply = decoded['reply'] ??
+                decoded['response'] ??
+                decoded['message'] ??
+                decoded['text'] ??
+                response.body;
+          } else {
+            reply = response.body;
+          }
+        } catch (_) {
+          reply = response.body.isNotEmpty
+              ? response.body
+              : 'Server 201 qaytardi, lekin javob bo‘sh.';
+        }
+      } else {
+        reply = 'Xato: Server ${response.statusCode} qaytardi';
+      }
+
+
+      setState(() {
+        _messages.add('Bot: $reply');
+      });
+    } catch (e) {
+      setState(() {
+        _messages.add('Xato: $e');
+      });
+    } finally {
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
 
   @override
-  void initState() {
-    super.initState();
-    _loadSavedPhoneNumber();
-  }
-
-  // Saqlangan telefon raqamini yuklash
-  Future<void> _loadSavedPhoneNumber() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _savedPhoneNumber = prefs.getString('phone_number') ?? "";
-      _phoneController.text = _savedPhoneNumber;
-    });
-  }
-
-  // Telefon raqamini saqlash
-  Future<void> _savePhoneNumber() async {
-    if (_phoneController.text.trim().isEmpty) {
-      _showSnackBar("Telefon raqamini kiriting!");
-      return;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('phone_number', _phoneController.text.trim());
-
-    setState(() {
-      _savedPhoneNumber = _phoneController.text.trim();
-    });
-
-    _showSnackBar("Telefon raqam saqlandi!");
-  }
-
-  // Start activity API chaqiruv
-  Future<void> _startActivity() async {
-    if (_savedPhoneNumber.isEmpty) {
-      _showSnackBar("Avval telefon raqamini saqlang!");
-      return;
-    }
-
-    setState(() {
-      _isStartLoading = true;
-      _statusMessage = "";
-    });
-
-    try {
-      final url = BASE_URL + "patients/start/$_savedPhoneNumber/";
-      print("Sending START request to: $url");
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      );
-
-      print("START Response status: ${response.statusCode}");
-      print("START Response body: ${response.body}");
-
-      dynamic responseData;
-
-      if (response.body.trim().startsWith('<')) {
-        responseData = "HTML sahifa qaytdi - URL noto'g'ri yoki server xatolik";
-        setState(() {
-          _isStartLoading = false;
-          _statusMessage = "START ACTIVITY: ${response.statusCode} - $responseData";
-        });
-      } else {
-        try {
-          responseData = json.decode(response.body);
-          setState(() {
-            _isStartLoading = false;
-            // Muvaffaqiyatli bo'lsa faoliyatni boshlangan deb belgilaymiz
-            if (response.statusCode == 200 || response.statusCode == 201) {
-              _isActivityActive = true;
-            }
-            _statusMessage = "START ACTIVITY: ${response.statusCode}";
-          });
-        } catch (jsonError) {
-          setState(() {
-            _isStartLoading = false;
-            // JSON xatolik bo'lsa ham status code ga qarab belgilaymiz
-            if (response.statusCode == 200 || response.statusCode == 201) {
-              _isActivityActive = true;
-            }
-            _statusMessage = "START ACTIVITY: ${response.statusCode}";
-          });
-        }
-      }
-
-      print("START ACTIVITY: ${response.statusCode} $responseData");
-
-    } catch (e) {
-      setState(() {
-        _isStartLoading = false;
-        _statusMessage = "START Tarmoq xatoligi: $e";
-      });
-      print("Error starting activity: $e");
-    }
-  }
-
-  // End activity API chaqiruv
-  Future<void> _endActivity() async {
-    if (_savedPhoneNumber.isEmpty) {
-      _showSnackBar("Avval telefon raqamini saqlang!");
-      return;
-    }
-
-    print("STOP tugmasi bosildi!");
-
-    setState(() {
-      _isStopLoading = true;
-      _statusMessage = "STOP so'rovi yuborilmoqda...";
-    });
-
-    try {
-      final url = BASE_URL + "patients/end/$_savedPhoneNumber/";
-      print("Sending END request to: $url");
-
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      );
-
-      print("END Response status: ${response.statusCode}");
-      print("END Response body: ${response.body}");
-
-      dynamic responseData;
-
-      if (response.body.trim().startsWith('<')) {
-        responseData = "HTML sahifa qaytdi - URL noto'g'ri yoki server xatolik";
-        setState(() {
-          _isStopLoading = false;
-          _isActivityActive = false; // Har doim to'xtatamiz
-          _statusMessage = "END ACTIVITY: ${response.statusCode} - $responseData";
-        });
-      } else {
-        try {
-          responseData = json.decode(response.body);
-          setState(() {
-            _isStopLoading = false;
-            _isActivityActive = false; // Har doim to'xtatamiz
-            _statusMessage = "END ACTIVITY: ${response.statusCode}";
-          });
-        } catch (jsonError) {
-          setState(() {
-            _isStopLoading = false;
-            _isActivityActive = false; // Har doim to'xtatamiz
-            _statusMessage = "END ACTIVITY: ${response.statusCode}";
-          });
-        }
-      }
-
-      print("END ACTIVITY: ${response.statusCode} $responseData");
-      _showSnackBar("STOP so'rovi yuborildi!");
-
-    } catch (e) {
-      setState(() {
-        _isStopLoading = false;
-        _isActivityActive = false; // Xatolik bo'lsa ham to'xtatamiz
-        _statusMessage = "END Tarmoq xatoligi: $e";
-      });
-      _showSnackBar("STOP so'rovi yuborildi (xatolik bilan)!");
-      print("Error ending activity: $e");
-    }
-  }
-
-  void _showSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: Duration(seconds: 2),
-      ),
-    );
+  void dispose() {
+    _userIdController.dispose();
+    _promptController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Patient Activity'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
+        title: const Text('API Chat'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
+      body: SafeArea(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Telefon raqam kiritish
-            Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Telefon raqam',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: TextField(
+                controller: _userIdController,
+                decoration: const InputDecoration(
+                  labelText: 'User ID',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final text = _messages[index];
+                  final isUser = text.startsWith('Siz:');
+                  return Container(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: isUser
+                          ? MainAxisAlignment.end
+                          : MainAxisAlignment.start,
+                      children: [
+                        Flexible(
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isUser
+                                  ? Colors.blue[100]
+                                  : Colors.grey[200],
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              text,
+                              style: TextStyle(
+                                color: isUser
+                                    ? Colors.blue[900]
+                                    : Colors.black87,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    SizedBox(height: 10),
-                    TextField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        hintText: '932608005',
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _promptController,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _sendPrompt(),
+                      decoration: const InputDecoration(
+                        hintText: 'Savolingizni kiriting...',
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.phone),
                       ),
                     ),
-                    SizedBox(height: 15),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _savePhoneNumber,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: Text(
-                          'Saqlash',
-                          style: TextStyle(fontSize: 16),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  _loading
+                      ? const SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                      : IconButton(
+                    icon: const Icon(Icons.send),
+                    onPressed: _sendPrompt,
+                  ),
+                ],
               ),
             ),
-
-            SizedBox(height: 20),
-
-            // Saqlangan telefon raqam ko'rsatish
-            if (_savedPhoneNumber.isNotEmpty)
-              Card(
-                elevation: 2,
-                color: Colors.blue.shade50,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Icon(Icons.check_circle, color: Colors.green),
-                      SizedBox(width: 10),
-                      Text(
-                        'Saqlangan raqam: $_savedPhoneNumber',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
-            SizedBox(height: 30),
-
-            // Start va Stop tugmalari
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _isStartLoading ? null : _startActivity,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: _isStartLoading
-                        ? CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                        : Text(
-                      'START',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-                SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _isStopLoading ? null : _endActivity,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: _isStopLoading
-                        ? CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                        : Text(
-                      'STOP',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            SizedBox(height: 20),
-
-            // Holat ko'rsatgichi
-            Card(
-              elevation: 2,
-              color: _isActivityActive ? Colors.green.shade50 : Colors.red.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Icon(
-                      _isActivityActive ? Icons.play_circle : Icons.stop_circle,
-                      color: _isActivityActive ? Colors.green : Colors.red,
-                      size: 24,
-                    ),
-                    SizedBox(width: 10),
-                    Text(
-                      _isActivityActive ? 'Faoliyat boshlangan' : 'Faoliyat to\'xtatilgan',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: _isActivityActive ? Colors.green.shade700 : Colors.red.shade700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            SizedBox(height: 20),
-
-            // Status message
-            if (_statusMessage.isNotEmpty)
-              Card(
-                elevation: 2,
-                color: Colors.grey.shade100,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'So\'nggi javob:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        _statusMessage,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontFamily: 'Courier',
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
           ],
         ),
       ),

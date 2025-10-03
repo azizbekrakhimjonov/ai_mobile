@@ -1,8 +1,8 @@
-# Patients App
+# AI Mobile App
 
 ## 📱 Download APK
 
----[[Download]](https://github.com/azizbekrakhimjonov/patients_app/releases/download/v1.0.0/Patients.apk)---
+---[[Download]](https://github.com/azizbekrakhimjonov/ai_mobile/releases/download/v1.0.0/ai.apk)---
 
 ## 🔧 Installation
 
@@ -19,20 +19,16 @@
 <div align="center">
 
 ### Main Features
-<img src="screenshots/screen1.jpg" width="200" height="400">
-<img src="screenshots/screen2.jpg" width="200" height="400">
-<img src="screenshots/screen3.jpg" width="200" height="400">
-
+<img src="screenshots/screen1.png" width="200" height="400">
 </div>
 
 
 # Bu buyruq eng kichik APK beradi
 `flutter build apk --release --split-per-abi --obfuscate --split-debug-info=build/debug-info`
 
-Telefoningiz 64-bit bo'lsa: app-arm64-v8a-release.apk
-Eski telefonlar uchun: app-armeabi-v7a-release.apk
-Emulyator yoki Intel protsessorli qurilmalar uchun: app-x86_64-release.apk
+## Telefoningiz 64-bit bo'lsa: app-arm64-v8a-release.apk
 
-Telefoningiz 64-bit bo'lsa: app-arm64-v8a-release.apk
-Eski telefonlar uchun: app-armeabi-v7a-release.apk
-Emulyator yoki Intel protsessorli qurilmalar uchun: app-x86_64-release.apk
+## Eski telefonlar uchun: app-armeabi-v7a-release.apk
+
+### Emulyator yoki Intel protsessorli qurilmalar uchun: app-x86_64-release.apk
+
